@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>엑셀 문서 비교</title>
+    <style>
+        :root {
+            --bg: #f4f6fb;
+            --card: #ffffff;
+            --border: #e2e8f0;
+            --text: #1e293b;
+            --muted: #64748b;
+            --accent: #4f46e5;
+            --same: #ffffff;
+            --changed: #fef3c7;
+            --changed-b: #f59e0b;
+            --added: #dcfce7;
+            --added-b: #22c55e;
+            --removed: #fee2e2;
+            --removed-b: #ef4444;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Malgun Gothic", sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.5;
+        }
+        header {
+            background: linear-gradient(135deg, #4f46e5, #7c3aed);
+            color: #fff;
+            padding: 32px 24px;
+            text-align: center;
+        }
+        header h1 { margin: 0 0 6px; font-size: 26px; }
+        header p { margin: 0; opacity: 0.9; font-size: 14px; }
+        .container { max-width: 1100px; margin: 0 auto; padding: 24px; }
+        .drop-zones {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+        @media (max-width: 640px) { .drop-zones { grid-template-columns: 1fr; } }
+        .drop {
+            background: var(--card);
+            border: 2px dashed var(--border);
+            border-radius: 12px;
+            padding: 28px 16px;
+            text-align: center;
+            cursor: pointer;
+            transition: border-color .2s, background .2s;
+        }
+        .drop:hover, .drop.dragover { border-color: var(--accent); background: #eef2ff; }
+        .drop .label { font-weight: 600; margin-bottom: 8px; }
+        .drop .hint { color: var(--muted); font-size: 13px; }
+        .drop .filename { margin-top: 10px; color: var(--accent); font-weight: 600; font-size: 14px; word-break: break-all; }
+        .drop.filled { border-style: solid; border-color: var(--accent); }
+        input[type=file] { display: none; }
+        .actions { text-align: center; margin-bottom: 24px; }
+        button {
+            background: var(--accent);
+            color: #fff;
+            border: none;
+            padding: 12px 32px;
+            font-size: 15px;
+            font-weight: 600;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: opacity .2s;
+        }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        button:not(:disabled):hover { opacity: 0.9; }
+        .status { text-align: center; color: var(--muted); margin-bottom: 16px; min-height: 20px; }
+        .error { color: var(--removed-b); font-weight: 600; }
+        .summary {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            justify-content: center;
+            margin-bottom: 24px;
+        }
+        .chip {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 999px;
+            padding: 8px 18px;
+            font-size: 14px;
+            font-weight: 600;
+        }
+        .chip .n { font-size: 18px; margin-left: 6px; }
+        .chip.changed { border-color: var(--changed-b); }
+        .chip.added { border-color: var(--added-b); }
+        .chip.removed { border-color: var(--removed-b); }
+        .legend { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; margin-bottom: 20px; font-size: 13px; color: var(--muted); }
+        .legend span { display: inline-flex; align-items: center; gap: 6px; }
+        .swatch { width: 14px; height: 14px; border-radius: 3px; display: inline-block; border: 1px solid var(--border); }
+        .sheet {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            margin-bottom: 20px;
+            overflow: hidden;
+        }
+        .sheet h2 {
+            margin: 0;
+            padding: 14px 18px;
+            font-size: 16px;
+            background: #f8fafc;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .sheet h2 .badges { font-size: 12px; font-weight: 500; color: var(--muted); }
+        .badge { padding: 2px 8px; border-radius: 6px; margin-left: 6px; }
+        .badge.changed { background: var(--changed); }
+        .badge.added { background: var(--added); }
+        .badge.removed { background: var(--removed); }
+        .table-wrap { overflow-x: auto; }
+        table { border-collapse: collapse; width: 100%; font-size: 13px; }
+        th, td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; white-space: nowrap; }
+        thead th { background: #f1f5f9; position: sticky; top: 0; }
+        td.ref { color: var(--muted); font-variant-numeric: tabular-nums; }
+        tr.changed td.val { background: var(--changed); }
+        tr.added td.val { background: var(--added); }
+        tr.removed td.val { background: var(--removed); }
+        .old { color: var(--removed-b); }
+        .new { color: var(--added-b); }
+        .no-diff { text-align: center; color: var(--added-b); font-weight: 600; padding: 24px; }
+        .only-in { padding: 16px 18px; color: var(--muted); font-size: 14px; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>📊 엑셀 문서 비교</h1>
+        <p>두 개의 엑셀 파일을 올리면 시트별 · 셀 단위 차이를 색으로 보여줍니다</p>
+    </header>
+
+    <div class="container">
+        <div class="drop-zones">
+            <label class="drop" id="drop-a">
+                <div class="label">기존 파일 (A)</div>
+                <div class="hint">클릭 또는 드래그하여 업로드</div>
+                <div class="filename" id="name-a"></div>
+                <input type="file" id="file-a" accept=".xlsx,.xls,.xlsm">
+            </label>
+            <label class="drop" id="drop-b">
+                <div class="label">새 파일 (B)</div>
+                <div class="hint">클릭 또는 드래그하여 업로드</div>
+                <div class="filename" id="name-b"></div>
+                <input type="file" id="file-b" accept=".xlsx,.xls,.xlsm">
+            </label>
+        </div>
+
+        <div class="actions">
+            <button id="compare-btn" disabled>비교하기</button>
+        </div>
+
+        <div class="status" id="status"></div>
+        <div id="results"></div>
+    </div>
+
+    <script>
+        const fileA = document.getElementById('file-a');
+        const fileB = document.getElementById('file-b');
+        const btn = document.getElementById('compare-btn');
+        const statusEl = document.getElementById('status');
+        const resultsEl = document.getElementById('results');
+
+        function wireDrop(dropId, input, nameId) {
+            const drop = document.getElementById(dropId);
+            const nameEl = document.getElementById(nameId);
+
+            input.addEventListener('change', () => {
+                if (input.files.length) {
+                    nameEl.textContent = input.files[0].name;
+                    drop.classList.add('filled');
+                }
+                refreshButton();
+            });
+
+            ['dragenter', 'dragover'].forEach(ev =>
+                drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('dragover'); }));
+            ['dragleave', 'drop'].forEach(ev =>
+                drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('dragover'); }));
+            drop.addEventListener('drop', e => {
+                if (e.dataTransfer.files.length) {
+                    input.files = e.dataTransfer.files;
+                    input.dispatchEvent(new Event('change'));
+                }
+            });
+        }
+
+        wireDrop('drop-a', fileA, 'name-a');
+        wireDrop('drop-b', fileB, 'name-b');
+
+        function refreshButton() {
+            btn.disabled = !(fileA.files.length && fileB.files.length);
+        }
+
+        btn.addEventListener('click', async () => {
+            if (!fileA.files.length || !fileB.files.length) return;
+            btn.disabled = true;
+            resultsEl.innerHTML = '';
+            statusEl.innerHTML = '⏳ 비교 중입니다...';
+            statusEl.classList.remove('error');
+
+            const form = new FormData();
+            form.append('file_a', fileA.files[0]);
+            form.append('file_b', fileB.files[0]);
+
+            try {
+                const resp = await fetch('/compare', { method: 'POST', body: form });
+                const data = await resp.json();
+                if (!resp.ok) {
+                    statusEl.innerHTML = '⚠️ ' + (data.error || '오류가 발생했습니다.');
+                    statusEl.classList.add('error');
+                } else {
+                    statusEl.innerHTML = '';
+                    render(data);
+                }
+            } catch (err) {
+                statusEl.innerHTML = '⚠️ 요청 중 오류가 발생했습니다: ' + err;
+                statusEl.classList.add('error');
+            } finally {
+                btn.disabled = false;
+            }
+        });
+
+        function esc(s) {
+            const d = document.createElement('div');
+            d.textContent = s;
+            return d.innerHTML;
+        }
+
+        function render(data) {
+            const t = data.total;
+            let html = '';
+
+            html += '<div class="summary">';
+            html += `<div class="chip">전체 변경<span class="n">${t.changed + t.added + t.removed}</span></div>`;
+            html += `<div class="chip changed">변경됨<span class="n">${t.changed}</span></div>`;
+            html += `<div class="chip added">추가됨<span class="n">${t.added}</span></div>`;
+            html += `<div class="chip removed">삭제됨<span class="n">${t.removed}</span></div>`;
+            html += '</div>';
+
+            html += '<div class="legend">';
+            html += '<span><i class="swatch" style="background:var(--changed)"></i> 변경 (양쪽 값이 다름)</span>';
+            html += '<span><i class="swatch" style="background:var(--added)"></i> 추가 (B에만 있음)</span>';
+            html += '<span><i class="swatch" style="background:var(--removed)"></i> 삭제 (A에만 있음)</span>';
+            html += '</div>';
+
+            if (!data.changed) {
+                html += '<div class="sheet"><div class="no-diff">✅ 두 파일은 동일합니다. 차이가 없습니다.</div></div>';
+                resultsEl.innerHTML = html;
+                return;
+            }
+
+            data.sheets.forEach(sheet => {
+                const c = sheet.counts;
+                const diffs = sheet.cells.filter(x => x.status !== 'same');
+                if (diffs.length === 0 && !sheet.only_in) return;
+
+                html += '<div class="sheet">';
+                html += `<h2>📄 ${esc(sheet.name)}<span class="badges">`;
+                html += `<span class="badge changed">변경 ${c.changed}</span>`;
+                html += `<span class="badge added">추가 ${c.added}</span>`;
+                html += `<span class="badge removed">삭제 ${c.removed}</span>`;
+                html += '</span></h2>';
+
+                if (sheet.only_in === 'A') {
+                    html += '<div class="only-in">🗑️ 이 시트는 <b>기존 파일(A)</b>에만 존재합니다 (새 파일에서 삭제됨).</div>';
+                } else if (sheet.only_in === 'B') {
+                    html += '<div class="only-in">✨ 이 시트는 <b>새 파일(B)</b>에만 존재합니다 (새로 추가됨).</div>';
+                }
+
+                if (diffs.length) {
+                    html += '<div class="table-wrap"><table><thead><tr>';
+                    html += '<th>위치</th><th>상태</th><th>기존 값 (A)</th><th>새 값 (B)</th>';
+                    html += '</tr></thead><tbody>';
+                    diffs.forEach(cell => {
+                        const labelMap = { changed: '변경', added: '추가', removed: '삭제' };
+                        html += `<tr class="${cell.status}">`;
+                        html += `<td class="ref">${esc(cell.ref)}</td>`;
+                        html += `<td>${labelMap[cell.status]}</td>`;
+                        html += `<td class="val old">${esc(cell.old) || '<i>(빈 셀)</i>'}</td>`;
+                        html += `<td class="val new">${esc(cell.new) || '<i>(빈 셀)</i>'}</td>`;
+                        html += '</tr>';
+                    });
+                    html += '</tbody></table></div>';
+                }
+                html += '</div>';
+            });
+
+            resultsEl.innerHTML = html;
+        }
+    </script>
+</body>
+</html>
