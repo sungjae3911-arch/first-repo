@@ -1,0 +1,390 @@
+<title>카드 가계부 (프로토타입)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root {
+    --bg: #f4f5f7;
+    --card: #ffffff;
+    --text: #1a1c22;
+    --muted: #6b7280;
+    --line: #e5e7eb;
+    --accent: #4f46e5;
+    --accent-soft: #eef2ff;
+    --green: #16a34a;
+    --red: #dc2626;
+    --shadow: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f1115; --card: #181b22; --text: #e8eaf0; --muted: #9aa0ad;
+      --line: #2a2e37; --accent: #818cf8; --accent-soft: #20232e; --shadow: none;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .app { max-width: 480px; margin: 0 auto; min-height: 100vh; background: var(--bg); padding-bottom: 40px; }
+  header {
+    position: sticky; top: 0; z-index: 10;
+    background: var(--accent); color: #fff; padding: 20px 20px 22px;
+    border-radius: 0 0 20px 20px;
+  }
+  header h1 { margin: 0; font-size: 18px; font-weight: 700; letter-spacing: -.3px; }
+  header .sub { margin-top: 2px; font-size: 12px; opacity: .85; }
+  .balance { margin-top: 16px; }
+  .balance .label { font-size: 12px; opacity: .85; }
+  .balance .amount { font-size: 30px; font-weight: 800; letter-spacing: -.5px; margin-top: 2px; }
+  .summary-row { display: flex; gap: 10px; margin-top: 14px; }
+  .summary-row .box {
+    flex: 1; background: rgba(255,255,255,.15); border-radius: 12px; padding: 10px 12px;
+  }
+  .summary-row .box .k { font-size: 11px; opacity: .85; }
+  .summary-row .box .v { font-size: 15px; font-weight: 700; margin-top: 2px; }
+
+  section { padding: 16px 16px 0; }
+  .card {
+    background: var(--card); border-radius: 16px; padding: 16px; box-shadow: var(--shadow);
+    border: 1px solid var(--line);
+  }
+  .card h2 { margin: 0 0 12px; font-size: 14px; font-weight: 700; display: flex; align-items: center; gap: 6px; }
+  textarea {
+    width: 100%; min-height: 70px; resize: vertical; border: 1px solid var(--line); border-radius: 12px;
+    padding: 12px; font-size: 14px; font-family: inherit; background: var(--bg); color: var(--text);
+  }
+  textarea:focus { outline: 2px solid var(--accent); border-color: transparent; }
+  .btn {
+    border: none; border-radius: 12px; padding: 12px 14px; font-size: 14px; font-weight: 700;
+    cursor: pointer; background: var(--accent); color: #fff; width: 100%;
+  }
+  .btn:active { transform: translateY(1px); }
+  .btn.ghost { background: var(--accent-soft); color: var(--accent); }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .chip {
+    font-size: 12px; border: 1px solid var(--line); background: var(--bg); color: var(--muted);
+    border-radius: 999px; padding: 6px 10px; cursor: pointer;
+  }
+  .chip:hover { border-color: var(--accent); color: var(--accent); }
+
+  .parsed {
+    margin-top: 12px; border: 1px dashed var(--accent); border-radius: 12px; padding: 12px;
+    background: var(--accent-soft); display: none;
+  }
+  .parsed.show { display: block; }
+  .parsed .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; }
+  .parsed .f { font-size: 11px; color: var(--muted); }
+  .parsed .f b { display: block; font-size: 15px; color: var(--text); font-weight: 700; margin-top: 1px; }
+  .parsed .actions { display: flex; gap: 8px; margin-top: 12px; }
+  .parsed .actions .btn { flex: 1; }
+
+  .tx { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+  .tx:last-child { border-bottom: none; }
+  .tx .icon {
+    width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center;
+    background: var(--accent-soft); font-size: 18px; flex-shrink: 0;
+  }
+  .tx .info { flex: 1; min-width: 0; }
+  .tx .info .m { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tx .info .s { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .tx .amt { font-size: 15px; font-weight: 700; color: var(--red); white-space: nowrap; }
+  .tx .del { background: none; border: none; color: var(--muted); font-size: 16px; cursor: pointer; padding: 4px; }
+  .empty { text-align: center; color: var(--muted); font-size: 13px; padding: 24px 0; }
+
+  .cat-bar { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; display: flex; margin: 6px 0 14px; }
+  .cat-list .row { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 5px 0; }
+  .cat-list .dot { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+  .cat-list .row .n { flex: 1; }
+  .cat-list .row .v { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  .muted { color: var(--muted); font-size: 12px; }
+  .toast {
+    position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%) translateY(20px);
+    background: #1a1c22; color: #fff; padding: 10px 16px; border-radius: 999px; font-size: 13px;
+    opacity: 0; transition: .25s; pointer-events: none; z-index: 100;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+</style>
+
+<div class="app">
+  <header>
+    <h1>💳 카드 가계부</h1>
+    <div class="sub">카드 승인 문자를 넣으면 자동으로 기록돼요</div>
+    <div class="balance">
+      <div class="label" id="month-label">이번 달 지출</div>
+      <div class="amount" id="total">₩0</div>
+    </div>
+    <div class="summary-row">
+      <div class="box"><div class="k">건수</div><div class="v" id="count">0건</div></div>
+      <div class="box"><div class="k">평균/건</div><div class="v" id="avg">₩0</div></div>
+      <div class="box"><div class="k">최다 지출</div><div class="v" id="topcat">-</div></div>
+    </div>
+  </header>
+
+  <section>
+    <div class="card">
+      <h2>📩 카드 승인 문자 붙여넣기</h2>
+      <textarea id="sms" placeholder="예) [Web발신] 신한카드(1234) 승인 12,000원 일시불 08/11 14:30 스타벅스 누적1,234,567원"></textarea>
+      <div class="chips" id="samples"></div>
+      <div style="margin-top:10px"><button class="btn" id="parse-btn">문자 인식하기</button></div>
+
+      <div class="parsed" id="parsed">
+        <div class="grid">
+          <div class="f">카드사<b id="p-card">-</b></div>
+          <div class="f">금액<b id="p-amount">-</b></div>
+          <div class="f">가맹점<b id="p-merchant">-</b></div>
+          <div class="f">카테고리<b id="p-cat">-</b></div>
+          <div class="f" style="grid-column:1/-1">일시<b id="p-date">-</b></div>
+        </div>
+        <div class="actions">
+          <button class="btn ghost" id="cancel-btn">취소</button>
+          <button class="btn" id="add-btn">가계부에 기록</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="card">
+      <h2>📊 카테고리별 지출</h2>
+      <div class="cat-bar" id="cat-bar"></div>
+      <div class="cat-list" id="cat-list"></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="card">
+      <h2>🧾 최근 내역</h2>
+      <div id="tx-list"></div>
+    </div>
+  </section>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+
+/* ---------- 카테고리 규칙 (가맹점 키워드 → 카테고리) ---------- */
+const CATEGORIES = [
+  { name: "식비",     icon: "🍚", color: "#ef4444", keys: ["식당","김밥","백반","국밥","고기","치킨","피자","버거","맥도날드","롯데리아","배달","배민","요기요","분식","한식","중국","일식"] },
+  { name: "카페/간식", icon: "☕", color: "#f59e0b", keys: ["스타벅스","커피","카페","이디야","투썸","베이커리","파리바게","뚜레쥬르","빽다방","메가커피","공차","베스킨"] },
+  { name: "편의점/마트",icon: "🛒", color: "#10b981", keys: ["GS25","CU","세븐일레븐","이마트","마트","롯데마트","홈플러스","코스트코","편의점","emart"] },
+  { name: "교통",     icon: "🚌", color: "#3b82f6", keys: ["주유","SK에너지","GS칼텍스","교통","지하철","버스","택시","카카오T","코레일","SRT","주차","하이패스"] },
+  { name: "쇼핑",     icon: "🛍️", color: "#8b5cf6", keys: ["쿠팡","11번가","G마켓","무신사","올리브영","다이소","백화점","의류","유니클로","자라"] },
+  { name: "의료",     icon: "🏥", color: "#ec4899", keys: ["병원","약국","의원","치과","한의원","클리닉"] },
+  { name: "문화/여가", icon: "🎬", color: "#06b6d4", keys: ["CGV","메가박스","롯데시네마","영화","노래","PC","넷플릭스","유튜브","게임","서점","교보"] },
+  { name: "기타",     icon: "💠", color: "#94a3b8", keys: [] },
+];
+
+const CARD_NAMES = ["신한","삼성","현대","KB국민","국민","롯데","하나","우리","BC","비씨","NH","농협","카카오뱅크","토스","씨티","IBK","기업"];
+
+const SAMPLES = [
+  "[Web발신] 신한카드(1234) 승인 12,000원 일시불 08/11 14:30 스타벅스 누적1,234,567원",
+  "삼성카드 승인 홍길동님 45,800원 (일시불) 08/11 롯데마트",
+  "[Web발신] KB국민 승인 8,900원 GS25 08/11 09:12",
+  "현대카드 승인 22,000원 할부3개월 08/10 19:40 CGV 강남",
+  "NH농협 승인 3,500원 08/11 08:05 메가커피",
+];
+
+/* ---------- 문자 파싱 ---------- */
+function parseSMS(raw) {
+  if (!raw || !raw.trim()) return null;
+  const text = raw.replace(/\s+/g, " ").trim();
+
+  // 승인 금액: "누적" 앞의 금액은 제외. 첫 번째 "숫자,숫자원" 을 승인액으로.
+  const amounts = [];
+  const re = /([\d,]{2,})\s*원/g;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const idx = m.index;
+    const before = text.slice(Math.max(0, idx - 6), idx);
+    if (/누적|잔액|한도|누적금/.test(before)) continue; // 누적/잔액 금액 제외
+    amounts.push(parseInt(m[1].replace(/,/g, ""), 10));
+  }
+  const amount = amounts.length ? amounts[0] : null;
+
+  // 카드사
+  let card = CARD_NAMES.find(c => text.includes(c)) || null;
+  if (card === "국민") card = "KB국민";
+  if (card === "비씨") card = "BC";
+  if (card) card += "카드";
+
+  // 날짜 (MM/DD 또는 MM.DD, 시간 HH:MM)
+  const dateM = text.match(/(\d{1,2})[\/.](\d{1,2})/);
+  const timeM = text.match(/(\d{1,2}):(\d{2})/);
+  const now = new Date();
+  let dateObj = now;
+  if (dateM) {
+    const mm = parseInt(dateM[1], 10) - 1, dd = parseInt(dateM[2], 10);
+    const hh = timeM ? parseInt(timeM[1], 10) : 12;
+    const mi = timeM ? parseInt(timeM[2], 10) : 0;
+    dateObj = new Date(now.getFullYear(), mm, dd, hh, mi);
+  }
+
+  // 가맹점 추출: 잡음 토큰 제거 후 남는 한글/영문 단어들
+  let merchant = "";
+  const noise = new RegExp(
+    "\\[?Web발신\\]?|누적[\\d,]*원?|승인|취소|일시불|할부\\d*개월?|" +
+    CARD_NAMES.join("|") + "|카드|\\(\\d+\\)|[\\d,]+원|\\d{1,2}[\\/.:]\\d{1,2}|" +
+    "\\d{1,2}:\\d{2}|님|원", "g");
+  const cleaned = text.replace(noise, " ").replace(/[()]/g, " ").replace(/\s+/g, " ").trim();
+  // 남은 토큰 중 사람 이름(2~3글자) 성격을 줄이기 위해, 가장 긴 의미있는 토큰 위주로
+  const tokens = cleaned.split(" ").filter(t => t.length >= 1);
+  merchant = tokens.join(" ").trim() || "미상 가맹점";
+
+  // 카테고리 매칭
+  const cat = categorize(merchant);
+
+  return { card: card || "카드", amount, merchant, date: dateObj, category: cat.name, icon: cat.icon, color: cat.color };
+}
+
+function categorize(merchant) {
+  const t = (merchant || "").toLowerCase();
+  for (const c of CATEGORIES) {
+    if (c.keys.some(k => t.includes(k.toLowerCase()))) return c;
+  }
+  return CATEGORIES[CATEGORIES.length - 1]; // 기타
+}
+function catMeta(name) { return CATEGORIES.find(c => c.name === name) || CATEGORIES[CATEGORIES.length - 1]; }
+
+/* ---------- 상태 / 저장 ---------- */
+const KEY = "card-ledger-tx";
+let txs = load();
+let pending = null;
+
+function load() { try { return JSON.parse(localStorage.getItem(KEY)) || []; } catch { return []; } }
+function save() { localStorage.setItem(KEY, JSON.stringify(txs)); }
+
+function fmt(n) { return "₩" + (n || 0).toLocaleString("ko-KR"); }
+function fmtDate(iso) {
+  const d = new Date(iso);
+  return `${d.getMonth() + 1}월 ${d.getDate()}일 ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
+}
+
+/* ---------- 렌더링 ---------- */
+function render() {
+  const now = new Date();
+  const monthTx = txs.filter(t => {
+    const d = new Date(t.date);
+    return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+  });
+
+  const total = monthTx.reduce((s, t) => s + t.amount, 0);
+  document.getElementById("month-label").textContent = `${now.getMonth() + 1}월 지출`;
+  document.getElementById("total").textContent = fmt(total);
+  document.getElementById("count").textContent = monthTx.length + "건";
+  document.getElementById("avg").textContent = fmt(monthTx.length ? Math.round(total / monthTx.length) : 0);
+
+  // 카테고리 집계
+  const byCat = {};
+  monthTx.forEach(t => byCat[t.category] = (byCat[t.category] || 0) + t.amount);
+  const sorted = Object.entries(byCat).sort((a, b) => b[1] - a[1]);
+  document.getElementById("topcat").textContent = sorted.length ? sorted[0][0] : "-";
+
+  // 카테고리 바
+  const bar = document.getElementById("cat-bar");
+  const list = document.getElementById("cat-list");
+  bar.innerHTML = ""; list.innerHTML = "";
+  if (!sorted.length) {
+    list.innerHTML = '<div class="empty">아직 지출 내역이 없어요</div>';
+  } else {
+    sorted.forEach(([name, val]) => {
+      const meta = catMeta(name);
+      const seg = document.createElement("div");
+      seg.style.width = (val / total * 100) + "%";
+      seg.style.background = meta.color;
+      bar.appendChild(seg);
+
+      const row = document.createElement("div");
+      row.className = "row";
+      row.innerHTML = `<span class="dot" style="background:${meta.color}"></span>
+        <span class="n">${meta.icon} ${name}</span>
+        <span class="v">${fmt(val)} · ${Math.round(val / total * 100)}%</span>`;
+      list.appendChild(row);
+    });
+  }
+
+  // 내역 리스트
+  const listEl = document.getElementById("tx-list");
+  listEl.innerHTML = "";
+  if (!txs.length) {
+    listEl.innerHTML = '<div class="empty">위에서 카드 승인 문자를 넣어보세요 👆</div>';
+    return;
+  }
+  [...txs].sort((a, b) => new Date(b.date) - new Date(a.date)).forEach(t => {
+    const el = document.createElement("div");
+    el.className = "tx";
+    el.innerHTML = `
+      <div class="icon">${t.icon}</div>
+      <div class="info">
+        <div class="m">${t.merchant}</div>
+        <div class="s">${t.card} · ${t.category} · ${fmtDate(t.date)}</div>
+      </div>
+      <div class="amt">-${fmt(t.amount)}</div>
+      <button class="del" data-id="${t.id}" title="삭제">✕</button>`;
+    listEl.appendChild(el);
+  });
+  listEl.querySelectorAll(".del").forEach(b =>
+    b.addEventListener("click", () => { txs = txs.filter(x => x.id !== b.dataset.id); save(); render(); toast("삭제됐어요"); }));
+}
+
+/* ---------- 이벤트 ---------- */
+function showParsed(p) {
+  pending = p;
+  document.getElementById("p-card").textContent = p.card;
+  document.getElementById("p-amount").textContent = p.amount != null ? fmt(p.amount) : "인식 실패";
+  document.getElementById("p-merchant").textContent = p.merchant;
+  document.getElementById("p-cat").textContent = p.icon + " " + p.category;
+  document.getElementById("p-date").textContent = fmtDate(p.date);
+  document.getElementById("parsed").classList.add("show");
+}
+
+document.getElementById("parse-btn").addEventListener("click", () => {
+  const p = parseSMS(document.getElementById("sms").value);
+  if (!p) return toast("문자를 먼저 입력해주세요");
+  if (p.amount == null) return toast("금액을 인식하지 못했어요 😢");
+  showParsed(p);
+});
+
+document.getElementById("add-btn").addEventListener("click", () => {
+  if (!pending) return;
+  txs.push({
+    id: Date.now() + "-" + Math.random().toString(36).slice(2, 6),
+    card: pending.card, amount: pending.amount, merchant: pending.merchant,
+    category: pending.category, icon: pending.icon, date: pending.date.toISOString(),
+  });
+  save();
+  document.getElementById("parsed").classList.remove("show");
+  document.getElementById("sms").value = "";
+  pending = null;
+  render();
+  toast("가계부에 기록됐어요 ✅");
+});
+
+document.getElementById("cancel-btn").addEventListener("click", () => {
+  document.getElementById("parsed").classList.remove("show");
+  pending = null;
+});
+
+// 샘플 문자 칩
+const samplesEl = document.getElementById("samples");
+SAMPLES.forEach((s, i) => {
+  const chip = document.createElement("button");
+  chip.className = "chip";
+  chip.textContent = "샘플 " + (i + 1);
+  chip.title = s;
+  chip.addEventListener("click", () => { document.getElementById("sms").value = s; });
+  samplesEl.appendChild(chip);
+});
+
+let toastTimer;
+function toast(msg) {
+  const el = document.getElementById("toast");
+  el.textContent = msg; el.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove("show"), 1800);
+}
+
+render();
+</script>

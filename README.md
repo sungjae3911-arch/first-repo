@@ -1,33 +1,22 @@
-# First Repo
+# 카드 가계부 (프로토타입)
 
-git 연습을 위한 나의 첫 레포
+카드 승인 문자를 붙여넣으면 **금액·가맹점·날짜·카테고리를 자동으로 인식**해서 가계부에 기록해 주는 웹 프로토타입입니다.
 
-[See Demo](https://www.google.com/)
+## 실행 방법
+`index.html` 파일을 브라우저로 열면 바로 동작합니다. (설치·서버 불필요)
 
-## Prerequisites
+## 핵심 동작
+1. 카드 승인 문자(예: `신한카드(1234) 승인 12,000원 08/11 스타벅스`)를 붙여넣거나 샘플 버튼 클릭
+2. **문자 인식하기** → 금액/가맹점/카테고리 자동 파싱
+3. **가계부에 기록** → 이번 달 지출·카테고리별 통계에 즉시 반영
+4. 내역은 브라우저(localStorage)에 저장됩니다.
 
-- git
-- python^3.13
-- pandas==1.0.0
+## 자동 기록의 원리
+프로토타입에서는 문자를 직접 붙여넣지만, 실제로는 **안드로이드 앱**이 수신되는 카드 승인 문자를 백그라운드에서 읽어 같은 파싱 로직으로 자동 기록하게 됩니다. (iOS는 문자 접근 제한으로 자동 기록 불가)
 
-## How to start(Quickstart)
-
-```shell
-$ git clone {addr}
-$ cd first-repo
-$ python main.py
-```
-## Euler's Formula
-
-e^{i*theta} = \\cos(theta) + i*sin(theta)
-
-## Installation
-
-There is no installation.
-
-## Features
-
-- Greeting
-- Counting fizzbuzz
-
-![](https://images.pexels.com/photos/104827/cat-pet-animal-domestic-104827.jpeg)
+## 로드맵
+- [ ] 안드로이드 문자 수신 → 자동 파싱/기록 (SMS Receiver)
+- [ ] 카드사별 문자 포맷 정확도 개선
+- [ ] 월별 예산 설정·초과 알림
+- [ ] 수기 입력/수정 화면
+- [ ] 데이터 백업·동기화
