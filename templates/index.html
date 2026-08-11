@@ -159,6 +159,7 @@
 
         <div class="actions">
             <button id="compare-btn" disabled>비교하기</button>
+            <button id="export-btn" disabled>📥 결과 엑셀 다운로드</button>
         </div>
 
         <div class="status" id="status"></div>
@@ -169,6 +170,7 @@
         const fileA = document.getElementById('file-a');
         const fileB = document.getElementById('file-b');
         const btn = document.getElementById('compare-btn');
+        const exportBtn = document.getElementById('export-btn');
         const statusEl = document.getElementById('status');
         const resultsEl = document.getElementById('results');
 
@@ -200,8 +202,46 @@
         wireDrop('drop-b', fileB, 'name-b');
 
         function refreshButton() {
-            btn.disabled = !(fileA.files.length && fileB.files.length);
+            const ready = !!(fileA.files.length && fileB.files.length);
+            btn.disabled = !ready;
+            exportBtn.disabled = !ready;
         }
+
+        exportBtn.addEventListener('click', async () => {
+            if (!fileA.files.length || !fileB.files.length) return;
+            exportBtn.disabled = true;
+            const original = exportBtn.textContent;
+            exportBtn.textContent = '⏳ 엑셀 생성 중...';
+            statusEl.classList.remove('error');
+
+            const form = new FormData();
+            form.append('file_a', fileA.files[0]);
+            form.append('file_b', fileB.files[0]);
+
+            try {
+                const resp = await fetch('/export', { method: 'POST', body: form });
+                if (!resp.ok) {
+                    let msg = '결과 엑셀을 만들지 못했습니다.';
+                    try { msg = (await resp.json()).error || msg; } catch (e) {}
+                    statusEl.innerHTML = '⚠️ ' + msg;
+                    statusEl.classList.add('error');
+                } else {
+                    const blob = await resp.blob();
+                    const a = document.createElement('a');
+                    a.href = URL.createObjectURL(blob);
+                    a.download = '비교결과.xlsx';
+                    document.body.appendChild(a);
+                    a.click();
+                    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+                }
+            } catch (err) {
+                statusEl.innerHTML = '⚠️ 요청 중 오류가 발생했습니다: ' + err;
+                statusEl.classList.add('error');
+            } finally {
+                exportBtn.disabled = false;
+                exportBtn.textContent = original;
+            }
+        });
 
         btn.addEventListener('click', async () => {
             if (!fileA.files.length || !fileB.files.length) return;

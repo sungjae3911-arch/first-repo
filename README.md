@@ -48,10 +48,13 @@ There is no installation.
 | 삭제됨 (removed) | 기존 파일(A)에만 존재 | 빨강 |
 
 - 시트 단위 비교 (한쪽 파일에만 있는 시트도 표시)
-- 셀 좌표(예: `B3`)와 기존 값 → 새 값을 표 형태로 제공
-- `3` 과 `3.0`, 앞뒤 공백 등은 같은 값으로 정규화하여 오탐 방지
+- **개발자 diff 뷰**: git/머지 툴처럼 행을 정렬(LCS)해 좌(A)·우(B)를 나란히 표시.
+  중간에 행이 삽입/삭제되어도 줄이 알아서 밀려 맞춰집니다.
+- **동일/다름 판정 배너** + `3`/`3.0`·앞뒤 공백 정규화로 오탐 방지
+- **결과 엑셀 다운로드**: 바뀐 셀이 색으로 칠해지고 `이전값 → 새값` 메모가 달린
+  `.xlsx` 를 만들어, 엑셀에서 바로 열어볼 수 있습니다.
 
-### 실행 방법
+### 실행 방법 (웹 앱)
 
 ```shell
 $ pip install -r requirements.txt
@@ -60,15 +63,29 @@ $ python app.py
 ```
 
 `기존 파일(A)`와 `새 파일(B)`을 각각 드래그하거나 클릭하여 올린 뒤
-`비교하기` 버튼을 누르면 결과가 표시됩니다. (지원 형식: `.xlsx`, `.xls`, `.xlsm`)
+`비교하기`로 화면에서 확인하거나, `결과 엑셀 다운로드`로 색칠된 엑셀을 받습니다.
+(지원 형식: `.xlsx`, `.xls`, `.xlsm`)
+
+### CLI 로 결과 엑셀 만들기
+
+웹 없이 명령줄에서 바로 색칠된 diff 엑셀을 만들 수 있습니다.
+
+```shell
+$ python excel_diff.py 기존.xlsx 새.xlsx -o 비교결과.xlsx
+```
+
+결과 워크북 구성: `[요약]` 시트(전체/시트별 집계 + 동일/다름 판정) +
+원본 시트별 좌우 diff 뷰(`~` 변경·노랑 / `-` 삭제·빨강 / `+` 추가·초록).
 
 ### 프로젝트 구조
 
 ```
-app.py               # Flask 웹 서버 (업로드 → 비교 → 결과 JSON)
-comparator.py        # 엑셀 비교 핵심 로직
-templates/index.html # 업로드 UI + 결과 화면
-test_comparator.py   # 비교 로직 테스트 (python test_comparator.py)
+app.py               # Flask 웹 서버 (/compare = 결과 JSON, /export = 색칠 엑셀)
+comparator.py        # 엑셀 비교 핵심 로직 (셀 단위)
+excel_diff.py        # 개발자 diff 뷰 엑셀 생성 (모듈 + CLI)
+templates/index.html # 업로드 UI + 결과 화면 + 다운로드 버튼
+test_comparator.py   # 비교 로직 테스트
+test_excel_diff.py   # 결과 엑셀 생성 테스트
 requirements.txt     # 의존성
 ```
 
@@ -76,4 +93,5 @@ requirements.txt     # 의존성
 
 ```shell
 $ python test_comparator.py
+$ python test_excel_diff.py
 ```
