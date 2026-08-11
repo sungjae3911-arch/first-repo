@@ -66,6 +66,17 @@
     border-radius: 999px; padding: 6px 10px; cursor: pointer;
   }
   .chip:hover { border-color: var(--accent); color: var(--accent); }
+  .tabs { display: flex; gap: 6px; background: var(--bg); border-radius: 12px; padding: 4px; margin-bottom: 10px; }
+  .tab {
+    flex: 1; border: none; background: transparent; color: var(--muted); font-weight: 700;
+    font-size: 13px; padding: 8px; border-radius: 9px; cursor: pointer;
+  }
+  .tab.active { background: var(--card); color: var(--accent); box-shadow: var(--shadow); }
+  .note {
+    margin-top: 10px; font-size: 12px; color: var(--muted); line-height: 1.5;
+    background: var(--bg); border-radius: 10px; padding: 10px 12px;
+  }
+  .note b { color: var(--text); }
 
   .parsed {
     margin-top: 12px; border: 1px dashed var(--accent); border-radius: 12px; padding: 12px;
@@ -123,10 +134,14 @@
 
   <section>
     <div class="card">
-      <h2>📩 카드 승인 문자 붙여넣기</h2>
-      <textarea id="sms" placeholder="예) [Web발신] 신한카드(1234) 승인 12,000원 일시불 08/11 14:30 스타벅스 누적1,234,567원"></textarea>
+      <h2>📩 결제 내역 자동 인식</h2>
+      <div class="tabs" id="tabs">
+        <button class="tab active" data-mode="sms">📱 카드 문자</button>
+        <button class="tab" data-mode="email">📧 이메일 영수증</button>
+      </div>
+      <textarea id="sms" placeholder=""></textarea>
       <div class="chips" id="samples"></div>
-      <div style="margin-top:10px"><button class="btn" id="parse-btn">문자 인식하기</button></div>
+      <div style="margin-top:10px"><button class="btn" id="parse-btn">인식하기</button></div>
 
       <div class="parsed" id="parsed">
         <div class="grid">
@@ -141,6 +156,8 @@
           <button class="btn" id="add-btn">가계부에 기록</button>
         </div>
       </div>
+
+      <div class="note" id="note"></div>
     </div>
   </section>
 
@@ -179,63 +196,91 @@ const CATEGORIES = [
 
 const CARD_NAMES = ["신한","삼성","현대","KB국민","국민","롯데","하나","우리","BC","비씨","NH","농협","카카오뱅크","토스","씨티","IBK","기업"];
 
-const SAMPLES = [
-  "[Web발신] 신한카드(1234) 승인 12,000원 일시불 08/11 14:30 스타벅스 누적1,234,567원",
-  "삼성카드 승인 홍길동님 45,800원 (일시불) 08/11 롯데마트",
-  "[Web발신] KB국민 승인 8,900원 GS25 08/11 09:12",
-  "현대카드 승인 22,000원 할부3개월 08/10 19:40 CGV 강남",
-  "NH농협 승인 3,500원 08/11 08:05 메가커피",
-];
+const SAMPLES = {
+  sms: [
+    "[Web발신] 신한카드(1234) 승인 12,000원 일시불 08/11 14:30 스타벅스 누적1,234,567원",
+    "삼성카드 승인 홍길동님 45,800원 (일시불) 08/11 롯데마트",
+    "[Web발신] KB국민 승인 8,900원 GS25 08/11 09:12",
+    "현대카드 승인 22,000원 할부3개월 08/10 19:40 CGV 강남",
+    "NH농협 승인 3,500원 08/11 08:05 메가커피",
+  ],
+  email: [
+`[신한카드] 카드 이용 안내
+안녕하세요. 신한카드 이용내역을 안내드립니다.
+승인금액 : 18,500원
+가맹점명 : 스타벅스 강남역점
+승인일시 : 2026-08-11 14:30
+카드번호 : 1234-****-****-5678
+승인번호 : 30012345`,
+`[KB국민카드] 승인내역 안내
+결제금액: 52,300원
+이용가맹점: 이마트 성수점
+거래일시: 2026.08.11 19:22
+할부: 일시불`,
+`현대카드 이용내역
+이용금액 : 9,800원
+가맹점 : GS25 역삼점
+승인일시 : 2026-08-11 08:40
+누적이용금액 : 2,340,000원`,
+  ],
+};
 
-/* ---------- 문자 파싱 ---------- */
-function parseSMS(raw) {
+/* ---------- 문자/이메일 영수증 파싱 (같은 엔진) ---------- */
+function parseReceipt(raw) {
   if (!raw || !raw.trim()) return null;
+  const lines = raw.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
   const text = raw.replace(/\s+/g, " ").trim();
+  const now = new Date();
 
-  // 승인 금액: "누적" 앞의 금액은 제외. 첫 번째 "숫자,숫자원" 을 승인액으로.
-  const amounts = [];
-  const re = /([\d,]{2,})\s*원/g;
-  let m;
-  while ((m = re.exec(text)) !== null) {
-    const idx = m.index;
-    const before = text.slice(Math.max(0, idx - 6), idx);
-    if (/누적|잔액|한도|누적금/.test(before)) continue; // 누적/잔액 금액 제외
-    amounts.push(parseInt(m[1].replace(/,/g, ""), 10));
+  // 1) 금액 — 라벨(승인/이용/결제/거래/사용 금액) 우선, 없으면 일반 스캔("누적/잔액" 제외)
+  let amount = null;
+  const amtLabeled = text.match(/(?:승인|이용|결제|거래|사용)\s*금액\s*[:：]?\s*([\d,]{2,})\s*원/);
+  if (amtLabeled && !/누적/.test(text.slice(Math.max(0, amtLabeled.index - 4), amtLabeled.index))) {
+    amount = parseInt(amtLabeled[1].replace(/,/g, ""), 10);
+  } else {
+    const re = /([\d,]{2,})\s*원/g; let m;
+    while ((m = re.exec(text)) !== null) {
+      const before = text.slice(Math.max(0, m.index - 8), m.index);
+      if (/누적|잔액|한도/.test(before)) continue;
+      amount = parseInt(m[1].replace(/,/g, ""), 10); break;
+    }
   }
-  const amount = amounts.length ? amounts[0] : null;
 
-  // 카드사
+  // 2) 카드사
   let card = CARD_NAMES.find(c => text.includes(c)) || null;
   if (card === "국민") card = "KB국민";
   if (card === "비씨") card = "BC";
   if (card) card += "카드";
 
-  // 날짜 (MM/DD 또는 MM.DD, 시간 HH:MM)
-  const dateM = text.match(/(\d{1,2})[\/.](\d{1,2})/);
-  const timeM = text.match(/(\d{1,2}):(\d{2})/);
-  const now = new Date();
+  // 3) 날짜 — YYYY-MM-DD / YYYY.MM.DD (+시간) 우선, 없으면 MM/DD
   let dateObj = now;
-  if (dateM) {
-    const mm = parseInt(dateM[1], 10) - 1, dd = parseInt(dateM[2], 10);
-    const hh = timeM ? parseInt(timeM[1], 10) : 12;
-    const mi = timeM ? parseInt(timeM[2], 10) : 0;
-    dateObj = new Date(now.getFullYear(), mm, dd, hh, mi);
+  const full = text.match(/(\d{4})[-.](\d{1,2})[-.](\d{1,2})(?:\s+(\d{1,2}):(\d{2}))?/);
+  const short = text.match(/(?<!\d)(\d{1,2})[\/.](\d{1,2})(?!\d)/);
+  const timeM = text.match(/(\d{1,2}):(\d{2})/);
+  if (full) {
+    dateObj = new Date(+full[1], +full[2] - 1, +full[3], full[4] ? +full[4] : 12, full[5] ? +full[5] : 0);
+  } else if (short) {
+    dateObj = new Date(now.getFullYear(), +short[1] - 1, +short[2], timeM ? +timeM[1] : 12, timeM ? +timeM[2] : 0);
   }
 
-  // 가맹점 추출: 잡음 토큰 제거 후 남는 한글/영문 단어들
-  let merchant = "";
-  const noise = new RegExp(
-    "\\[?Web발신\\]?|누적[\\d,]*원?|승인|취소|일시불|할부\\d*개월?|" +
-    CARD_NAMES.join("|") + "|카드|\\(\\d+\\)|[\\d,]+원|\\d{1,2}[\\/.:]\\d{1,2}|" +
-    "\\d{1,2}:\\d{2}|님|원", "g");
-  const cleaned = text.replace(noise, " ").replace(/[()]/g, " ").replace(/\s+/g, " ").trim();
-  // 남은 토큰 중 사람 이름(2~3글자) 성격을 줄이기 위해, 가장 긴 의미있는 토큰 위주로
-  const tokens = cleaned.split(" ").filter(t => t.length >= 1);
-  merchant = tokens.join(" ").trim() || "미상 가맹점";
+  // 4) 가맹점 — 라벨(가맹점/이용가맹점/상호 등) 우선
+  let merchant = null;
+  for (const ln of lines) {
+    const mm = ln.match(/(?:이용가맹점|가맹점명|가맹점|이용하신\s*곳|이용처|상호명|상호)\s*[:：]\s*(.+)$/);
+    if (mm) { merchant = mm[1].trim(); break; }
+  }
+  if (!merchant) {
+    // 라벨이 없으면(문자 등) 잡음 토큰 제거 후 남는 단어
+    const noise = new RegExp(
+      "\\[?Web발신\\]?|누적[\\d,]*원?|승인번호\\s*[:：]?\\s*\\d+|카드번호\\s*[:：]?\\s*[\\d*\\-]+|" +
+      "승인|취소|일시불|할부\\d*개월?|이용\\s*안내|이용내역|승인내역|안내|안녕하세요|" +
+      CARD_NAMES.join("|") + "|카드|\\(\\d+\\)|[\\d,]+원|\\d{4}[-.]\\d{1,2}[-.]\\d{1,2}|" +
+      "\\d{1,2}[\\/.]\\d{1,2}|\\d{1,2}:\\d{2}|님|원|금액|일시|번호", "g");
+    const cleaned = text.replace(noise, " ").replace(/[()\[\]:：*\-]/g, " ").replace(/\s+/g, " ").trim();
+    merchant = cleaned.split(" ").filter(Boolean).join(" ").trim() || "미상 가맹점";
+  }
 
-  // 카테고리 매칭
   const cat = categorize(merchant);
-
   return { card: card || "카드", amount, merchant, date: dateObj, category: cat.name, icon: cat.icon, color: cat.color };
 }
 
@@ -341,8 +386,8 @@ function showParsed(p) {
 }
 
 document.getElementById("parse-btn").addEventListener("click", () => {
-  const p = parseSMS(document.getElementById("sms").value);
-  if (!p) return toast("문자를 먼저 입력해주세요");
+  const p = parseReceipt(document.getElementById("sms").value);
+  if (!p) return toast("내용을 먼저 입력해주세요");
   if (p.amount == null) return toast("금액을 인식하지 못했어요 😢");
   showParsed(p);
 });
@@ -367,16 +412,43 @@ document.getElementById("cancel-btn").addEventListener("click", () => {
   pending = null;
 });
 
-// 샘플 문자 칩
+// 모드(문자/이메일) 전환
+let mode = "sms";
+const PLACEHOLDERS = {
+  sms: "예) [Web발신] 신한카드(1234) 승인 12,000원 일시불 08/11 14:30 스타벅스 누적1,234,567원",
+  email: "카드사에서 온 이메일 영수증 내용을 붙여넣으세요.\n예) 승인금액 : 18,500원 / 가맹점명 : 스타벅스 강남역점 ...",
+};
+const NOTES = {
+  sms: "📱 <b>안드로이드</b>에서는 이 파싱 엔진이 수신 문자를 백그라운드에서 자동으로 읽어 기록해요. (iOS는 문자 접근 불가)",
+  email: "📧 <b>아이폰 포함 모든 기기</b>에서 동작하는 방식이에요. 실제 앱에서는 서버가 <b>Gmail 등 메일함을 주기적으로 확인</b>해 카드 영수증 메일이 오면 지금과 똑같이 파싱해 자동 기록합니다. 사용자는 아무것도 안 눌러도 돼요.",
+};
+
 const samplesEl = document.getElementById("samples");
-SAMPLES.forEach((s, i) => {
-  const chip = document.createElement("button");
-  chip.className = "chip";
-  chip.textContent = "샘플 " + (i + 1);
-  chip.title = s;
-  chip.addEventListener("click", () => { document.getElementById("sms").value = s; });
-  samplesEl.appendChild(chip);
+function renderSamples() {
+  samplesEl.innerHTML = "";
+  SAMPLES[mode].forEach((s, i) => {
+    const chip = document.createElement("button");
+    chip.className = "chip";
+    chip.textContent = "샘플 " + (i + 1);
+    chip.title = s;
+    chip.addEventListener("click", () => { document.getElementById("sms").value = s; });
+    samplesEl.appendChild(chip);
+  });
+  document.getElementById("sms").placeholder = PLACEHOLDERS[mode];
+  document.getElementById("note").innerHTML = NOTES[mode];
+}
+
+document.querySelectorAll(".tab").forEach(tab => {
+  tab.addEventListener("click", () => {
+    document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+    tab.classList.add("active");
+    mode = tab.dataset.mode;
+    document.getElementById("sms").value = "";
+    document.getElementById("parsed").classList.remove("show");
+    renderSamples();
+  });
 });
+renderSamples();
 
 let toastTimer;
 function toast(msg) {
