@@ -9,7 +9,7 @@ import tempfile
 import pandas as pd
 from openpyxl import load_workbook
 
-from excel_diff import export_diff_xlsx
+from excel_diff import export_diff_xlsx, export_presence_xlsx
 
 
 def _make_xlsx(path, sheets):
@@ -100,8 +100,41 @@ def test_sheet_only_in_one():
     print("✓ sheet only in one file")
 
 
+def test_presence_export_green_red():
+    """위치 무시 있음/없음 엑셀: 상대에 있으면 초록, 없으면 빨강."""
+    with tempfile.TemporaryDirectory() as d:
+        a = os.path.join(d, "a.xlsx")
+        b = os.path.join(d, "b.xlsx")
+        out = os.path.join(d, "out.xlsx")
+        _make_xlsx(a, {"과일": [["사과", "바나나"], ["체리", "포도"]]})
+        _make_xlsx(b, {"과일": [["포도", "체리", "사과"], ["바나나", "오렌지"]]})
+        result = export_presence_xlsx(a, b, out)
+
+        # A값 4개는 모두 B에 있음(초록) → A쪽 red 0. B의 오렌지만 red.
+        assert result["total"]["red"] == 1, "오렌지 1개만 빨강이어야 함"
+        assert result["total"]["green"] == 8, "나머지 8개 셀은 초록이어야 함"
+
+        wb = load_workbook(out)
+        ws = wb["과일"]
+        greens = reds = 0
+        orange_is_red = False
+        for row in ws.iter_rows(min_row=2):
+            for c in row:
+                f = _fill(c)
+                if f in GREEN:
+                    greens += 1
+                elif f in RED:
+                    reds += 1
+                    if c.value == "오렌지":
+                        orange_is_red = True
+        assert greens == 8 and reds == 1
+        assert orange_is_red, "오렌지 셀이 빨강으로 칠해져야 함"
+    print("✓ presence export green/red")
+
+
 if __name__ == "__main__":
     test_change_insert_delete_alignment()
     test_identical_no_fills()
     test_sheet_only_in_one()
+    test_presence_export_green_red()
     print("\n모든 테스트 통과 ✅")

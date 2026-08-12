@@ -317,17 +317,162 @@ def _write_summary(ws, total: dict, per_sheet: list, path_a: str, path_b: str) -
     ws.column_dimensions["E"].width = 30
 
 
+def _value_set(df) -> set[str]:
+    """시트의 비어있지 않은 셀 값 집합."""
+    values: set[str] = set()
+    if df is None:
+        return values
+    for r in range(df.shape[0]):
+        for c in range(df.shape[1]):
+            v = _normalize(df.iat[r, c])
+            if v != "":
+                values.add(v)
+    return values
+
+
+def export_presence_xlsx(path_a: str, path_b: str, out_path: str) -> dict:
+    """위치(행·열)를 무시하고 '있음/없음'을 색으로 칠한 엑셀을 만든다.
+
+    두 파일을 좌(A)·우(B)로 나란히 두고, 각 셀 값이 상대 파일에 존재하면
+    초록, 없으면 빨강으로 칠한다.
+    """
+    sheets_a = _read_sheets(path_a)
+    sheets_b = _read_sheets(path_b)
+
+    names = list(sheets_a.keys())
+    for name in sheets_b.keys():
+        if name not in names:
+            names.append(name)
+
+    wb = Workbook()
+    summary_ws = wb.active
+    summary_ws.title = "요약"
+
+    total = {"green": 0, "red": 0}
+    per_sheet = []
+
+    for name in names:
+        df_a, df_b = sheets_a.get(name), sheets_b.get(name)
+        only_in = "B" if df_a is None else ("A" if df_b is None else None)
+        cols_a = df_a.shape[1] if df_a is not None else 0
+        cols_b = df_b.shape[1] if df_b is not None else 0
+        rows_a = _grid_rows(df_a, cols_a)
+        rows_b = _grid_rows(df_b, cols_b)
+        set_a, set_b = _value_set(df_a), _value_set(df_b)
+
+        ws = wb.create_sheet(title=_safe_sheet_title(name, wb))
+        ca, cb = max(cols_a, 1), max(cols_b, 1)
+        left0, right0 = 1, ca + 2  # ca+1 열은 좌우 사이 여백
+
+        ws.cell(row=1, column=left0, value="기존 파일 (A)").font = Font(bold=True)
+        ws.cell(row=1, column=right0, value="새 파일 (B)").font = Font(bold=True)
+        if ca > 1:
+            ws.merge_cells(start_row=1, start_column=left0, end_row=1, end_column=left0 + ca - 1)
+        if cb > 1:
+            ws.merge_cells(start_row=1, start_column=right0, end_row=1, end_column=right0 + cb - 1)
+        ws.cell(row=1, column=left0).alignment = CENTER
+        ws.cell(row=1, column=right0).alignment = CENTER
+        ws.freeze_panes = "A2"
+
+        green = red = 0
+
+        def paint(excel_row, start_col, row, cols, other_set):
+            nonlocal green, red
+            for c in range(cols):
+                val = row[c] if c < len(row) else ""
+                if val == "":
+                    continue
+                cell = ws.cell(row=excel_row, column=start_col + c, value=val)
+                cell.border = BORDER
+                if val in other_set:
+                    cell.fill = FILL_ADDED
+                    cell.font = FONT_ADDED
+                    green += 1
+                else:
+                    cell.fill = FILL_REMOVED
+                    cell.font = FONT_REMOVED
+                    red += 1
+
+        for i in range(max(len(rows_a), len(rows_b))):
+            xr = i + 2
+            if i < len(rows_a):
+                paint(xr, left0, rows_a[i], ca, set_b)
+            if i < len(rows_b):
+                paint(xr, right0, rows_b[i], cb, set_a)
+
+        for c in range(1, right0 + cb):
+            ws.column_dimensions[get_column_letter(c)].width = 3 if c == ca + 1 else 12
+
+        total["green"] += green
+        total["red"] += red
+        per_sheet.append((name, green, red, only_in))
+
+    _write_presence_summary(summary_ws, total, per_sheet, path_a, path_b)
+    wb.save(out_path)
+    return {"total": total, "sheets": [{"name": n, "green": g, "red": r, "only_in": o} for n, g, r, o in per_sheet]}
+
+
+def _write_presence_summary(ws, total: dict, per_sheet: list, path_a: str, path_b: str) -> None:
+    ws["A1"] = "엑셀 문서 비교 결과 (위치 무시 · 있음/없음)"
+    ws["A1"].font = Font(size=14, bold=True)
+    ws["A2"] = f"기존 파일(A): {path_a}"
+    ws["A3"] = f"새 파일(B): {path_b}"
+    for r in (2, 3):
+        ws[f"A{r}"].font = Font(color="666666")
+
+    ok = total["red"] == 0
+    ws["A5"] = "판정"
+    ws["B5"] = "✅ 모든 내용이 상대 파일에도 존재합니다" if ok else f"⚠️ 상대 파일에 없는 값 {total['red']}곳"
+    ws["A5"].font = Font(bold=True)
+    ws["B5"].font = Font(bold=True, color="006100" if ok else "9C5700")
+    ws["A7"] = "색: 초록 = 상대 파일에 있음 · 빨강 = 상대 파일에 없음"
+    ws["A7"].font = Font(color="666666")
+
+    header = ["시트", "있음(초록)", "없음(빨강)", "비고"]
+    row0 = 9
+    for j, h in enumerate(header, start=1):
+        cell = ws.cell(row=row0, column=j, value=h)
+        cell.fill = FILL_HEADER
+        cell.font = FONT_HEADER
+        cell.alignment = CENTER
+
+    r = row0 + 1
+    for name, green, red, only_in in per_sheet:
+        note = "기존 파일에만 있음" if only_in == "A" else ("새 파일에만 있음" if only_in == "B" else "")
+        ws.cell(row=r, column=1, value=name)
+        ws.cell(row=r, column=2, value=green)
+        ws.cell(row=r, column=3, value=red)
+        ws.cell(row=r, column=4, value=note)
+        r += 1
+
+    ws.cell(row=r, column=1, value="합계").font = Font(bold=True)
+    ws.cell(row=r, column=2, value=total["green"]).font = Font(bold=True)
+    ws.cell(row=r, column=3, value=total["red"]).font = Font(bold=True)
+    ws.column_dimensions["A"].width = 26
+    ws.column_dimensions["D"].width = 24
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="두 엑셀 파일의 차이를 개발자 diff 뷰(색칠된 엑셀)로 내보냅니다.")
+    parser = argparse.ArgumentParser(description="두 엑셀 파일의 차이를 색칠된 엑셀로 내보냅니다.")
     parser.add_argument("file_a", help="기존 파일 (A)")
     parser.add_argument("file_b", help="새 파일 (B)")
     parser.add_argument("-o", "--out", default="비교결과.xlsx", help="결과 파일 경로 (기본: 비교결과.xlsx)")
+    parser.add_argument(
+        "-m", "--mode", choices=["diff", "presence"], default="diff",
+        help="diff=개발자 diff 뷰(기본) · presence=위치 무시 있음/없음(초록/빨강)",
+    )
     args = parser.parse_args()
 
-    result = export_diff_xlsx(args.file_a, args.file_b, args.out)
-    t = result["total"]
-    print(f"결과 저장: {args.out}")
-    print(f"  변경 {t['changed']} · 추가 {t['added']} · 삭제 {t['removed']}")
+    if args.mode == "presence":
+        result = export_presence_xlsx(args.file_a, args.file_b, args.out)
+        t = result["total"]
+        print(f"결과 저장: {args.out}")
+        print(f"  있음(초록) {t['green']} · 없음(빨강) {t['red']}")
+    else:
+        result = export_diff_xlsx(args.file_a, args.file_b, args.out)
+        t = result["total"]
+        print(f"결과 저장: {args.out}")
+        print(f"  변경 {t['changed']} · 추가 {t['added']} · 삭제 {t['removed']}")
 
 
 if __name__ == "__main__":
