@@ -101,35 +101,35 @@ def test_sheet_only_in_one():
 
 
 def test_presence_export_green_red():
-    """위치 무시 있음/없음 엑셀: 상대에 있으면 초록, 없으면 빨강."""
+    """데이터 유무 엑셀: 데이터가 있는 칸은 초록, 빈 칸은 빨강."""
     with tempfile.TemporaryDirectory() as d:
         a = os.path.join(d, "a.xlsx")
         b = os.path.join(d, "b.xlsx")
         out = os.path.join(d, "out.xlsx")
-        _make_xlsx(a, {"과일": [["사과", "바나나"], ["체리", "포도"]]})
-        _make_xlsx(b, {"과일": [["포도", "체리", "사과"], ["바나나", "오렌지"]]})
+        # A: 3x3 중 2칸이 빈칸(전화·이메일 하나씩)
+        _make_xlsx(a, {"연락처": [["이름", "전화"], ["김철수", 10], ["이영희", None]]})
+        # B: 2x2 중 1칸이 빈칸
+        _make_xlsx(b, {"연락처": [["이름", "전화"], [None, 20]]})
         result = export_presence_xlsx(a, b, out)
 
-        # A값 4개는 모두 B에 있음(초록) → A쪽 red 0. B의 오렌지만 red.
-        assert result["total"]["red"] == 1, "오렌지 1개만 빨강이어야 함"
-        assert result["total"]["green"] == 8, "나머지 8개 셀은 초록이어야 함"
+        # A: 채워진 칸 5, 빈칸 1 / B: 채워진 칸 3, 빈칸 1  → green 8, red 2
+        assert result["total"]["green"] == 8, "데이터 있는 칸은 초록"
+        assert result["total"]["red"] == 2, "빈 칸은 빨강"
 
         wb = load_workbook(out)
-        ws = wb["과일"]
+        ws = wb["연락처"]
         greens = reds = 0
-        orange_is_red = False
         for row in ws.iter_rows(min_row=2):
             for c in row:
                 f = _fill(c)
                 if f in GREEN:
                     greens += 1
+                    assert c.value is not None, "초록 칸엔 값이 있어야 함"
                 elif f in RED:
                     reds += 1
-                    if c.value == "오렌지":
-                        orange_is_red = True
-        assert greens == 8 and reds == 1
-        assert orange_is_red, "오렌지 셀이 빨강으로 칠해져야 함"
-    print("✓ presence export green/red")
+                    assert c.value is None, "빨강 칸은 비어 있어야 함"
+        assert greens == 8 and reds == 2
+    print("✓ presence export: data=green, empty=red")
 
 
 if __name__ == "__main__":
