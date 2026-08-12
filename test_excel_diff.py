@@ -101,35 +101,33 @@ def test_sheet_only_in_one():
 
 
 def test_presence_export_green_red():
-    """데이터 유무 엑셀: 데이터가 있는 칸은 초록, 빈 칸은 빨강."""
+    """A의 값이 B에도 있으면 초록, 한쪽에만 있으면 빨강 (양쪽 대칭)."""
     with tempfile.TemporaryDirectory() as d:
         a = os.path.join(d, "a.xlsx")
         b = os.path.join(d, "b.xlsx")
         out = os.path.join(d, "out.xlsx")
-        # A: 3x3 중 2칸이 빈칸(전화·이메일 하나씩)
-        _make_xlsx(a, {"연락처": [["이름", "전화"], ["김철수", 10], ["이영희", None]]})
-        # B: 2x2 중 1칸이 빈칸
-        _make_xlsx(b, {"연락처": [["이름", "전화"], [None, 20]]})
+        # 사과·바나나는 양쪽에 있음(초록) / 딸기는 A에만, 포도는 B에만(빨강)
+        _make_xlsx(a, {"과일": [["사과", "바나나"], ["딸기", None]]})
+        _make_xlsx(b, {"과일": [["바나나", "포도"], ["사과", None]]})
         result = export_presence_xlsx(a, b, out)
 
-        # A: 채워진 칸 5, 빈칸 1 / B: 채워진 칸 3, 빈칸 1  → green 8, red 2
-        assert result["total"]["green"] == 8, "데이터 있는 칸은 초록"
-        assert result["total"]["red"] == 2, "빈 칸은 빨강"
+        # 공통(사과·바나나) → 양쪽 다 초록 = 4칸. 한쪽만(딸기, 포도) = 2칸.
+        assert result["total"]["green"] == 4, "공통 값은 양쪽 모두 초록"
+        assert result["total"]["red"] == 2, "한쪽에만 있는 값은 빨강"
 
         wb = load_workbook(out)
-        ws = wb["연락처"]
-        greens = reds = 0
+        ws = wb["과일"]
+        greens, reds = set(), set()
         for row in ws.iter_rows(min_row=2):
             for c in row:
                 f = _fill(c)
                 if f in GREEN:
-                    greens += 1
-                    assert c.value is not None, "초록 칸엔 값이 있어야 함"
+                    greens.add(c.value)
                 elif f in RED:
-                    reds += 1
-                    assert c.value is None, "빨강 칸은 비어 있어야 함"
-        assert greens == 8 and reds == 2
-    print("✓ presence export: data=green, empty=red")
+                    reds.add(c.value)
+        assert greens == {"사과", "바나나"}, f"공통 값이 초록이어야 함: {greens}"
+        assert reds == {"딸기", "포도"}, f"한쪽에만 있는 값이 빨강이어야 함: {reds}"
+    print("✓ presence export: common=green, one-side-only=red")
 
 
 if __name__ == "__main__":

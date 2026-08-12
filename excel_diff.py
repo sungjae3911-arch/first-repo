@@ -317,11 +317,25 @@ def _write_summary(ws, total: dict, per_sheet: list, path_a: str, path_b: str) -
     ws.column_dimensions["E"].width = 30
 
 
-def export_presence_xlsx(path_a: str, path_b: str, out_path: str) -> dict:
-    """칸의 데이터 유무를 색으로 칠한 엑셀을 만든다.
+def _value_set(df) -> set[str]:
+    """시트의 비어있지 않은 셀 값 집합."""
+    values: set[str] = set()
+    if df is None:
+        return values
+    for r in range(df.shape[0]):
+        for c in range(df.shape[1]):
+            v = _normalize(df.iat[r, c])
+            if v != "":
+                values.add(v)
+    return values
 
-    두 파일을 좌(A)·우(B)로 나란히 두고, 칸에 데이터가 있으면 초록,
-    비어 있으면 빨강으로 칠한다.
+
+def export_presence_xlsx(path_a: str, path_b: str, out_path: str) -> dict:
+    """A의 값이 B에도 있으면 초록, 없으면 빨강으로 칠한 엑셀을 만든다 (양쪽 대칭).
+
+    두 파일을 좌(A)·우(B)로 나란히 두고, 어떤 값이 상대 파일에도 존재하면
+    (양쪽에 다 있으면) 초록, 한쪽 파일에만 있으면 빨강으로 칠한다. 빈 칸은 색 없음.
+    위치(행·열)는 무시하고 값의 존재 여부로만 판정한다.
     """
     sheets_a = _read_sheets(path_a)
     sheets_b = _read_sheets(path_b)
@@ -345,6 +359,7 @@ def export_presence_xlsx(path_a: str, path_b: str, out_path: str) -> dict:
         cols_b = df_b.shape[1] if df_b is not None else 0
         rows_a = _grid_rows(df_a, cols_a)
         rows_b = _grid_rows(df_b, cols_b)
+        set_a, set_b = _value_set(df_a), _value_set(df_b)
 
         ws = wb.create_sheet(title=_safe_sheet_title(name, wb))
         ca, cb = max(cols_a, 1), max(cols_b, 1)
@@ -362,27 +377,29 @@ def export_presence_xlsx(path_a: str, path_b: str, out_path: str) -> dict:
 
         green = red = 0
 
-        def paint(excel_row, start_col, row, cols):
+        def paint(excel_row, start_col, row, cols, other_set):
             nonlocal green, red
             for c in range(cols):
                 val = row[c] if c < len(row) else ""
-                cell = ws.cell(row=excel_row, column=start_col + c)
+                if val == "":
+                    continue  # 빈 칸은 색 없음
+                cell = ws.cell(row=excel_row, column=start_col + c, value=val)
                 cell.border = BORDER
-                if val != "":
-                    cell.value = val
+                if val in other_set:  # 상대 파일에도 있음 → 초록
                     cell.fill = FILL_ADDED
                     cell.font = FONT_ADDED
                     green += 1
-                else:
-                    cell.fill = FILL_REMOVED  # 빈 칸 = 빨강
+                else:                 # 한쪽 파일에만 있음 → 빨강
+                    cell.fill = FILL_REMOVED
+                    cell.font = FONT_REMOVED
                     red += 1
 
         for i in range(max(len(rows_a), len(rows_b))):
             xr = i + 2
             if i < len(rows_a):
-                paint(xr, left0, rows_a[i], ca)
+                paint(xr, left0, rows_a[i], ca, set_b)
             if i < len(rows_b):
-                paint(xr, right0, rows_b[i], cb)
+                paint(xr, right0, rows_b[i], cb, set_a)
 
         for c in range(1, right0 + cb):
             ws.column_dimensions[get_column_letter(c)].width = 3 if c == ca + 1 else 12
@@ -397,7 +414,7 @@ def export_presence_xlsx(path_a: str, path_b: str, out_path: str) -> dict:
 
 
 def _write_presence_summary(ws, total: dict, per_sheet: list, path_a: str, path_b: str) -> None:
-    ws["A1"] = "엑셀 문서 비교 결과 (데이터 유무 · 있음/빈 칸)"
+    ws["A1"] = "엑셀 문서 비교 결과 (양쪽에 있으면 초록 / 한쪽만 빨강)"
     ws["A1"].font = Font(size=14, bold=True)
     ws["A2"] = f"기존 파일(A): {path_a}"
     ws["A3"] = f"새 파일(B): {path_b}"
@@ -406,13 +423,13 @@ def _write_presence_summary(ws, total: dict, per_sheet: list, path_a: str, path_
 
     ok = total["red"] == 0
     ws["A5"] = "판정"
-    ws["B5"] = "✅ 모든 칸에 데이터가 있습니다" if ok else f"⚠️ 비어 있는 칸 {total['red']}칸"
+    ws["B5"] = "✅ 두 파일의 모든 값이 양쪽에 다 있습니다" if ok else f"⚠️ 한쪽에만 있는 값 {total['red']}칸"
     ws["A5"].font = Font(bold=True)
     ws["B5"].font = Font(bold=True, color="006100" if ok else "9C5700")
-    ws["A7"] = "색: 초록 = 데이터 있음 · 빨강 = 빈 칸"
+    ws["A7"] = "색: 초록 = 양쪽 파일에 다 있음 · 빨강 = 한쪽에만 있음"
     ws["A7"].font = Font(color="666666")
 
-    header = ["시트", "데이터(초록)", "빈 칸(빨강)", "비고"]
+    header = ["시트", "양쪽에 있음(초록)", "한쪽만(빨강)", "비고"]
     row0 = 9
     for j, h in enumerate(header, start=1):
         cell = ws.cell(row=row0, column=j, value=h)
@@ -443,7 +460,7 @@ def main() -> None:
     parser.add_argument("-o", "--out", default="비교결과.xlsx", help="결과 파일 경로 (기본: 비교결과.xlsx)")
     parser.add_argument(
         "-m", "--mode", choices=["diff", "presence"], default="diff",
-        help="diff=개발자 diff 뷰(기본) · presence=데이터 유무 색칠(초록=있음/빨강=빈 칸)",
+        help="diff=개발자 diff 뷰(기본) · presence=상대 파일에도 있으면 초록/없으면 빨강",
     )
     args = parser.parse_args()
 
@@ -451,7 +468,7 @@ def main() -> None:
         result = export_presence_xlsx(args.file_a, args.file_b, args.out)
         t = result["total"]
         print(f"결과 저장: {args.out}")
-        print(f"  데이터(초록) {t['green']} · 빈 칸(빨강) {t['red']}")
+        print(f"  양쪽에 있음(초록) {t['green']} · 한쪽만(빨강) {t['red']}")
     else:
         result = export_diff_xlsx(args.file_a, args.file_b, args.out)
         t = result["total"]
