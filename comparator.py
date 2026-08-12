@@ -154,6 +154,71 @@ def compare_files(path_a: str, path_b: str) -> dict:
     }
 
 
+def _value_bag(df: pd.DataFrame | None) -> dict[str, int]:
+    """시트의 비어있지 않은 셀 값들을 {값: 개수} 다중집합으로 만든다."""
+    bag: dict[str, int] = {}
+    if df is None:
+        return bag
+    for r in range(df.shape[0]):
+        for c in range(df.shape[1]):
+            v = _normalize(df.iat[r, c])
+            if v == "":
+                continue
+            bag[v] = bag.get(v, 0) + 1
+    return bag
+
+
+def compare_presence(path_a: str, path_b: str) -> dict:
+    """위치(행·열)를 무시하고 '내용 존재 여부'로 비교한다.
+
+    셀 값이 상대 파일 어디에든 있으면 '있음(공통)'으로 본다.
+    각 값의 개수를 비교해 한쪽에만 남는 값만 차이(A에만/B에만)로 분류한다.
+    """
+    sheets_a = _read_sheets(path_a)
+    sheets_b = _read_sheets(path_b)
+
+    names = list(sheets_a.keys())
+    for name in sheets_b.keys():
+        if name not in names:
+            names.append(name)
+
+    sheet_results = []
+    total = {"common": 0, "only_a": 0, "only_b": 0}
+
+    for name in names:
+        df_a, df_b = sheets_a.get(name), sheets_b.get(name)
+        only_in = "B" if df_a is None else ("A" if df_b is None else None)
+        bag_a, bag_b = _value_bag(df_a), _value_bag(df_b)
+
+        common = only_a = only_b = 0
+        only_a_vals, only_b_vals = [], []
+        for value in set(bag_a) | set(bag_b):
+            a, b = bag_a.get(value, 0), bag_b.get(value, 0)
+            common += min(a, b)
+            if a > b:
+                only_a += a - b
+                only_a_vals.append({"value": value, "extra": a - b})
+            elif b > a:
+                only_b += b - a
+                only_b_vals.append({"value": value, "extra": b - a})
+
+        only_a_vals.sort(key=lambda x: x["value"])
+        only_b_vals.sort(key=lambda x: x["value"])
+        total["common"] += common
+        total["only_a"] += only_a
+        total["only_b"] += only_b
+        sheet_results.append({
+            "name": name, "only_in": only_in, "common": common,
+            "only_a": only_a_vals, "only_b": only_b_vals,
+        })
+
+    return {
+        "sheets": sheet_results,
+        "total": total,
+        "changed": total["only_a"] + total["only_b"] > 0,
+    }
+
+
 def column_label(index: int) -> str:
     """0-based 컬럼 인덱스를 엑셀식 열 문자(A, B, ..., Z, AA, ...)로 변환한다."""
     label = ""

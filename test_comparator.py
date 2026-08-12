@@ -9,7 +9,7 @@ import tempfile
 
 import pandas as pd
 
-from comparator import column_label, compare_files
+from comparator import column_label, compare_files, compare_presence
 
 
 def _make_xlsx(path: str, sheets: dict[str, list[list]]) -> None:
@@ -85,10 +85,27 @@ def test_sheet_only_in_one_file():
     print("✓ sheet only in one file")
 
 
+def test_presence_ignores_position():
+    """행·열 위치가 달라도 값이 존재하면 공통으로 처리되는지 검증."""
+    with tempfile.TemporaryDirectory() as d:
+        a = os.path.join(d, "a.xlsx")
+        b = os.path.join(d, "b.xlsx")
+        _make_xlsx(a, {"과일": [["사과", "바나나"], ["체리", "포도"]]})
+        # 같은 값들이 다른 행·열로 이동 + 오렌지 추가
+        _make_xlsx(b, {"과일": [["포도", "체리", "사과"], ["바나나", "오렌지"]]})
+        result = compare_presence(a, b)
+        assert result["total"]["common"] == 4, "위치가 달라도 4개 값이 공통이어야 함"
+        assert result["total"]["only_a"] == 0
+        assert result["total"]["only_b"] == 1, "오렌지만 B에만 있어야 함"
+        assert result["sheets"][0]["only_b"][0]["value"] == "오렌지"
+    print("✓ presence comparison ignores row/column position")
+
+
 if __name__ == "__main__":
     test_column_label()
     test_identical_files()
     test_changed_added_removed()
     test_int_float_normalization()
     test_sheet_only_in_one_file()
+    test_presence_ignores_position()
     print("\n모든 테스트 통과 ✅")
